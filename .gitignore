@@ -1,0 +1,6 @@
+
+py_src/venv/
+.tmux.conf
+*.bat
+venv/
+
