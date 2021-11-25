@@ -1,102 +1,98 @@
-import json
+import argparse
 import os
-from typing import Optional, Tuple
+from typing import List
 import requests
 import shutil
 
 
-root_url = "https://portal.fedsfm.ru"
-login = os.environ.get("ROSFIN_LOGIN")
-passwd = os.environ.get("ROSFIN_PASS")
-file_name = "terrorists.zip"
+class RosFinClient:
+    root_url = "https://portal.fedsfm.ru"
+    file_name = "terrorists.zip"
 
+    def __init__(self, username: str, password: str):
+        self.s = requests.Session()
+        self.login_request(username, password)
 
-def login_request(s: requests.Session, root_url: str, username: str, password: str):
-    params = {
-        "Login": username,
-        "Password": password,
-    }
-    headers = {
-        "content-type": "application/json, charset=UTF-8",
-        "origin": "https://portal.fedsfm.ru",
-    }
-    url = f"{root_url}/account/login"
+    def login_request(self, username: str, password: str):
+        params = {
+            "Login": username,
+            "Password": password,
+        }
+        headers = {
+            "content-type": "application/json, charset=UTF-8",
+            "origin": self.root_url,
+        }
+        url = f"{self.root_url}/account/login"
 
-    resp = s.post(url, params=params, headers=headers)
-    assert resp.status_code == 200
+        resp = self.s.post(url, params=params, headers=headers)
+        assert resp.status_code == 200
 
+    def download_file(self) -> str:
+        url = f"{self.root_url}/SkedDownload/GetActiveSked?type=dbf"
+        resp = self.s.get(url, stream=True)
+        assert resp.status_code == 200
+        with open(self.file_name, "wb") as out_file:
+            shutil.copyfileobj(resp.raw, out_file)
+        del resp
+        return os.path.abspath(self.file_name)
 
-def load_main_page(s: requests.Session, root_url: str):
-    url = f"{root_url}/"
-    resp = s.get(url)
-    assert resp.status_code == 200
+    def get_unread_notifications(self) -> List[str]:
+        url = f"{self.root_url}/EventNotifications/GetNotifications"
+        payload = {"pageIndex": 1, "pageSize": 10, "isRead": False}
+        headers = {
+            "content-type": "application/json, charset=UTF-8",
+            "origin": self.root_url,
+            "user-agent": "curl",
+        }
+        resp = self.s.post(url, json=payload, headers=headers)
+        assert resp.status_code == 200
+        content = resp.json()
+        notifications = content.get("data").get("notifications")
+        return [x.get("idNotification") for x in notifications]
 
-
-def get_top_incoming_messages(s: requests.Session, root_url: str):
-    url = f"{root_url}/TextMessage/GetTopIncomingMessages"
-    payload = {"IdMessageType": 12, "topCount": 3}
-    resp = s.post(url, payload)
-    content = json.loads(resp.content)
-    print(content)
-    return
-
-
-def get_menu_id(s: requests.Session) -> Tuple[Optional[str], Optional[str]]:
-    cookie = s.cookies.get("FedsfmPortalSelectedMenusInfo")
-
-    if cookie is None:
-        return None, "cookie not found"
-    data = json.loads(cookie)
-    menu_id = data.get("CurrentMenuId")
-    if menu_id is None:
-        return None, "menu_id not found"
-    return menu_id, None
-
-
-def get_link_from_raw(content: str) -> Optional[str]:
-    bd1 = "Использование перечня организаций и физических лиц"
-    bd2 = "state"
-    m1 = content.find(bd1)
-    m2 = content[m1:].find(bd2)
-    inner = content[m1 : m1 + m2]
-    m11 = inner.find("#")
-    m22 = inner.find("}")
-    result = inner[m11:m22]
-    if result == "":
-        return None
-    return result
-
-
-def get_file_link(
-    s: requests.Session, menu_id: str, root_url: str
-) -> Tuple[Optional[str], Optional[str]]:
-    url = f"{root_url}/PortalPage/UserMenu"
-    payload = {"menuId": menu_id}
-    resp = s.post(url, params=payload)
-    assert resp.status_code == 200
-    content = json.loads(resp.content)
-    raw = content.get("Content")
-    if raw is None:
-        return None, "menu links not found"
-    file_link = get_link_from_raw(raw)
-    if file_link is None:
-        return None, "file link not found"
-    return file_link, None
-
-
-def download_file(s: requests.Session, root_url: str) -> str:
-    # url = f"{root_url}/{file_link}"
-    url = f"{root_url}/SkedDownload/GetActiveSked?type=dbf"
-    resp = s.get(url, stream=True)
-    assert resp.status_code == 200
-    with open(file_name, "wb") as out_file:
-        shutil.copyfileobj(resp.raw, out_file)
-    del resp
-    return os.path.abspath(file_name)
+    def post_checheked_notifications(self, notification_ids: List[str]) -> dict:
+        url = f"{self.root_url}/EventNotifications/GetCheckedNotifications"
+        payload = notification_ids
+        headers = {
+            "content-type": "application/json, charset=UTF-8",
+            "origin": self.root_url,
+            "user-agent": "curl",
+        }
+        resp = self.s.post(url, json=payload, headers=headers)
+        assert resp.status_code == 200
+        return resp.json()
 
 
 if __name__ == "__main__":
-    s = requests.Session()
-    login_request(s, root_url, login, passwd)
-    path = download_file(s, root_url)
-    print(path)
+    parser = argparse.ArgumentParser(
+        description="rosfin terrorists cli client tool"
+    )
+    parser.add_argument(
+        "-l",
+        "--login",
+        help="Login for rosfin admin panel or use env variable ROSFIN_LOGIN",
+    )
+    parser.add_argument(
+        "-p",
+        "--password",
+        help="Password for rosfin admin panel use env variable ROSFIN_PASS",
+    )
+    parser.add_argument(
+        "-f",
+        action="store_true",
+        help="download an actual file with terrorsts list",
+    )
+    args = vars(parser.parse_args())
+
+    login = os.environ.get("ROSFIN_LOGIN")
+    if login is None:
+        login = args["login"]
+    passwd = os.environ.get("ROSFIN_PASS")
+    if passwd is None:
+        passwd = args["password"]
+
+    client = RosFinClient(login, passwd)
+    ids = client.get_unread_notifications()
+    client.post_checheked_notifications(ids)
+    if args["f"]:
+        client.download_file()
