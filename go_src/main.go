@@ -106,8 +106,12 @@ type Notification struct {
 	ID string `json:"idNotification"`
 }
 
+type NotificationContainer struct {
+	Notifications []Notification `json:"notifications"`
+}
+
 type NotificationPayload struct {
-	Data []Notification `json:"data"`
+	Data NotificationContainer `json:"data"`
 }
 
 func (rfc RosfinClient) getUnreadNotifications() []string {
@@ -128,7 +132,32 @@ func (rfc RosfinClient) getUnreadNotifications() []string {
 	}
 	data := new(NotificationPayload)
 	json.NewDecoder(resp.Body).Decode(data)
-	return data.Data
+	ids := make([]string, 0)
+	container := data.Data
+	for _, elm := range container.Notifications {
+		ids = append(ids, elm.ID)
+	}
+	return ids
+}
+
+func (rfc RosfinClient) postCheckedNotifications(ids []string) {
+	var url = fmt.Sprintf("%s/EventNotifications/GetCheckedNotifications", rfc.rootUrl)
+	var payload, err = json.Marshal(ids)
+	if err != nil {
+		panic(err)
+	}
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(payload))
+	req.Header.Set("Content-Type", "application/json")
+	if err != nil {
+		panic(err)
+	}
+	resp, err := rfc.client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	if resp.StatusCode != 200 {
+		panic("get unread notifications fail")
+	}
 
 }
 
@@ -141,6 +170,8 @@ func main() {
 	}
 	var client = newRosfinClient(*login, *password)
 	client.makeLoginRequest()
+	var ids = client.getUnreadNotifications()
+	client.postCheckedNotifications(ids)
 	var result = client.downloadDbfFile(getFileName())
 	fmt.Println(result)
 }

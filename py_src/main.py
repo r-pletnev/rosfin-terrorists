@@ -64,9 +64,7 @@ class RosFinClient:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="rosfin terrorists cli client tool"
-    )
+    parser = argparse.ArgumentParser(description="rosfin terrorists cli client tool")
     parser.add_argument(
         "-l",
         "--login",
