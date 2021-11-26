@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -31,7 +32,8 @@ func getHttpClient() http.Client {
 	}
 
 	client := http.Client{
-		Jar: jar,
+		Jar:     jar,
+		Timeout: 10 * time.Second,
 	}
 	return client
 }
@@ -68,8 +70,6 @@ func (rfc RosfinClient) makeLoginRequest() {
 	if resp.StatusCode != 200 {
 		panic("login request fail")
 	}
-	// body, _ := ioutil.ReadAll(resp.Body)
-	// fmt.Println("resp body:", string(body))
 }
 
 func (rfc RosfinClient) downloadDbfFile(fileName string) string {
@@ -102,6 +102,65 @@ func (rfc RosfinClient) downloadDbfFile(fileName string) string {
 	return result
 }
 
+type Notification struct {
+	ID string `json:"idNotification"`
+}
+
+type NotificationContainer struct {
+	Notifications []Notification `json:"notifications"`
+}
+
+type NotificationPayload struct {
+	Data NotificationContainer `json:"data"`
+}
+
+func (rfc RosfinClient) getUnreadNotifications() []string {
+	var url = fmt.Sprintf("%s/EventNotifications/GetNotifications", rfc.rootUrl)
+	var payload = []byte(`{"pageIndex": 1, "pageSize": 10, "isRead": false}`)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(payload))
+	req.Header.Set("Content-Type", "application/json")
+	if err != nil {
+		panic(err)
+	}
+	resp, err := rfc.client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		panic("get unread notifications fail")
+	}
+	data := new(NotificationPayload)
+	json.NewDecoder(resp.Body).Decode(data)
+	ids := make([]string, 0)
+	container := data.Data
+	for _, elm := range container.Notifications {
+		ids = append(ids, elm.ID)
+	}
+	return ids
+}
+
+func (rfc RosfinClient) postCheckedNotifications(ids []string) {
+	var url = fmt.Sprintf("%s/EventNotifications/GetCheckedNotifications", rfc.rootUrl)
+	var payload, err = json.Marshal(ids)
+	if err != nil {
+		panic(err)
+	}
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(payload))
+	req.Header.Set("Content-Type", "application/json")
+	if err != nil {
+		panic(err)
+	}
+	resp, err := rfc.client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	if resp.StatusCode != 200 {
+		panic("get unread notifications fail")
+	}
+
+}
+
 func main() {
 	var login = flag.String("login", "", "login from rosfin cabinet")
 	var password = flag.String("password", "", "password from rosfin cabinet")
@@ -111,6 +170,8 @@ func main() {
 	}
 	var client = newRosfinClient(*login, *password)
 	client.makeLoginRequest()
+	var ids = client.getUnreadNotifications()
+	client.postCheckedNotifications(ids)
 	var result = client.downloadDbfFile(getFileName())
 	fmt.Println(result)
 }
