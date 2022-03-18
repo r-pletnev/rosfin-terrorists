@@ -21,6 +21,8 @@ class RosFinClient:
         headers = {
             "content-type": "application/json, charset=UTF-8",
             "origin": self.root_url,
+            "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.81 Safari/537.36",
+            "referer": "https://portal.fedsfm.ru/account/login",
         }
         url = f"{self.root_url}/account/login"
 
